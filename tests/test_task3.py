@@ -30,7 +30,7 @@ def test_rag_engine_basic():
     # Initialize components
     vector_db = VectorDatabase()
     data_foundation = StreamingDataFoundation()
-    rag_engine = RAGEngine(vector_db, data_foundation)
+    rag_engine = RAGEngine(vector_db, data_foundation, provider="openrouter")
     
     try:
         # Test 1: System status
@@ -83,7 +83,7 @@ def test_rag_engine_without_llm():
     data_foundation = StreamingDataFoundation()
     
     # Initialize RAG engine without API key
-    rag_engine = RAGEngine(vector_db, data_foundation, openai_api_key=None)
+    rag_engine = RAGEngine(vector_db, data_foundation, api_key=None, provider="openrouter")
     
     try:
         print("\n1. Testing without LLM...")
@@ -125,7 +125,7 @@ def test_rag_engine_with_llm():
     # Initialize components
     vector_db = VectorDatabase()
     data_foundation = StreamingDataFoundation()
-    rag_engine = RAGEngine(vector_db, data_foundation, openai_api_key=api_key)
+    rag_engine = RAGEngine(vector_db, data_foundation, api_key=api_key, provider="openrouter")
     
     try:
         print("\n1. Testing with LLM...")
@@ -171,7 +171,7 @@ def test_rag_engine_performance():
     # Initialize components
     vector_db = VectorDatabase()
     data_foundation = StreamingDataFoundation()
-    rag_engine = RAGEngine(vector_db, data_foundation)
+    rag_engine = RAGEngine(vector_db, data_foundation, provider="openrouter")
     
     try:
         # Test with different context sizes
@@ -212,7 +212,7 @@ def test_rag_engine_error_handling():
     # Initialize components
     vector_db = VectorDatabase()
     data_foundation = StreamingDataFoundation()
-    rag_engine = RAGEngine(vector_db, data_foundation)
+    rag_engine = RAGEngine(vector_db, data_foundation, provider="openrouter")
     
     try:
         # Test with empty query

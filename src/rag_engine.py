@@ -53,38 +53,60 @@ class RAGEngine:
     def __init__(self, 
                  vector_db,
                  data_foundation,
-                 openai_api_key: Optional[str] = None,
+                 api_key: Optional[str] = None,
                  model_name: Optional[str] = None,
-                 temperature: Optional[float] = None):
+                 temperature: Optional[float] = None,
+                 provider: str = "openai"):
         """
         Initialize the RAG engine.
         
         Args:
             vector_db: VectorDatabase instance
             data_foundation: StreamingDataFoundation instance
-            openai_api_key: OpenAI API key (if None, will try to get from env)
-            model_name: OpenAI model to use (if None, will get from env)
+            api_key: API key for LLM provider (if None, will try to get from env)
+            model_name: Model to use (if None, will get from env)
             temperature: Temperature for response generation (if None, will get from env)
+            provider: LLM provider ("openai" or "openrouter")
         """
         self.vector_db = vector_db
         self.data_foundation = data_foundation
+        self.provider = provider.lower()
         
         # Get configuration from environment variables or parameters
-        self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
-        self.model_name = model_name or os.getenv("OPENAI_MODEL", "gpt-4")
-        self.temperature = temperature or float(os.getenv("OPENAI_TEMPERATURE", "0.1"))
+        if self.provider == "openrouter":
+            self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
+            self.model_name = model_name or os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-r1-0528:free")
+            self.temperature = temperature or float(os.getenv("OPENROUTER_TEMPERATURE", "0.1"))
+        else:  # openai
+            self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+            self.model_name = model_name or os.getenv("OPENAI_MODEL", "gpt-4")
+            self.temperature = temperature or float(os.getenv("OPENAI_TEMPERATURE", "0.1"))
         
-        # Set up OpenAI
-        if self.openai_api_key:
-            os.environ["OPENAI_API_KEY"] = self.openai_api_key
-            openai.api_key = self.openai_api_key
-            self.llm = ChatOpenAI(
-                model=self.model_name,
-                temperature=self.temperature,
-                api_key=self.openai_api_key
-            )
+        # Set up LLM based on provider
+        if self.api_key:
+            if self.provider == "openrouter":
+                os.environ["OPENROUTER_API_KEY"] = self.api_key
+                # Use ChatOpenAI with OpenRouter's API endpoint
+                self.llm = ChatOpenAI(
+                    model=self.model_name,
+                    temperature=self.temperature,
+                    api_key=self.api_key,
+                    base_url="https://openrouter.ai/api/v1",
+                    default_headers={
+                        "HTTP-Referer": "https://github.com/palasgaonkar-vishal/project-insight",
+                        "X-Title": "AI-Powered Delivery Failure Analysis"
+                    }
+                )
+            else:  # openai
+                os.environ["OPENAI_API_KEY"] = self.api_key
+                openai.api_key = self.api_key
+                self.llm = ChatOpenAI(
+                    model=self.model_name,
+                    temperature=self.temperature,
+                    api_key=self.api_key
+                )
         else:
-            logger.warning("No OpenAI API key found. RAG functionality will be limited.")
+            logger.warning(f"No {self.provider.upper()} API key found. RAG functionality will be limited.")
             self.llm = None
         
         # Query intent patterns
@@ -516,6 +538,14 @@ Answer:"""
                 "status": "error",
                 "error": str(e)
             }
+    
+    def close(self):
+        """Close the RAG engine and clean up resources."""
+        if hasattr(self, 'vector_db') and self.vector_db:
+            self.vector_db.close()
+        if hasattr(self, 'data_foundation') and self.data_foundation:
+            self.data_foundation.close()
+        logger.info("RAG Engine closed.")
 
 
 def main():
