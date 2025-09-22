@@ -5,7 +5,7 @@ Test script for Task 1: Streaming-First Data Foundation
 
 import sys
 import os
-sys.path.append('src')
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from data_foundation import StreamingDataFoundation
 import pandas as pd

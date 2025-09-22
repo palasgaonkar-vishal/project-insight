@@ -15,6 +15,10 @@ from datetime import datetime
 import logging
 from functools import lru_cache
 import json
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,64 +31,67 @@ class StreamingDataFoundation:
     and stores them in SQLite with proper indexing for efficient querying.
     """
     
-    def __init__(self, chunk_size: int = 1000, db_path: str = "data/logistics.db"):
-        self.chunk_size = chunk_size
-        self.db_path = db_path
+    def __init__(self, 
+                 chunk_size: Optional[int] = None, 
+                 db_path: Optional[str] = None):
+        self.chunk_size = chunk_size or int(os.getenv("CHUNK_SIZE", "1000"))
+        self.db_path = db_path or os.getenv("DATABASE_PATH", "data/delivery_failures.db")
         self.data_sources = {}
         self.memory_usage = []
         
         # Create data directory if it doesn't exist
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         
         # Initialize database
         self.db = self._setup_database()
         
         # Data source configurations
+        self.data_dir = os.path.abspath(os.getenv("DATA_DIR", "sample-data-set"))
         self.source_configs = {
             'orders': {
-                'file': 'sample-data-set/orders.csv',
+                'file': 'orders.csv',
                 'table': 'orders',
                 'primary_key': 'order_id',
                 'indexes': ['client_id', 'city', 'state', 'order_date', 'status']
             },
             'fleet_logs': {
-                'file': 'sample-data-set/fleet_logs.csv',
+                'file': 'fleet_logs.csv',
                 'table': 'fleet_logs',
                 'primary_key': 'fleet_log_id',
                 'indexes': ['order_id', 'driver_id', 'departure_time']
             },
             'warehouse_logs': {
-                'file': 'sample-data-set/warehouse_logs.csv',
+                'file': 'warehouse_logs.csv',
                 'table': 'warehouse_logs',
                 'primary_key': 'log_id',
                 'indexes': ['order_id', 'warehouse_id', 'picking_start']
             },
             'external_factors': {
-                'file': 'sample-data-set/external_factors.csv',
+                'file': 'external_factors.csv',
                 'table': 'external_factors',
                 'primary_key': 'factor_id',
                 'indexes': ['order_id', 'recorded_at', 'weather_condition']
             },
             'feedback': {
-                'file': 'sample-data-set/feedback.csv',
+                'file': 'feedback.csv',
                 'table': 'feedback',
                 'primary_key': 'feedback_id',
                 'indexes': ['order_id', 'sentiment', 'rating', 'created_at']
             },
             'clients': {
-                'file': 'sample-data-set/clients.csv',
+                'file': 'clients.csv',
                 'table': 'clients',
                 'primary_key': 'client_id',
                 'indexes': ['city', 'state', 'created_at']
             },
             'drivers': {
-                'file': 'sample-data-set/drivers.csv',
+                'file': 'drivers.csv',
                 'table': 'drivers',
                 'primary_key': 'driver_id',
                 'indexes': ['city', 'state', 'status']
             },
             'warehouses': {
-                'file': 'sample-data-set/warehouses.csv',
+                'file': 'warehouses.csv',
                 'table': 'warehouses',
                 'primary_key': 'warehouse_id',
                 'indexes': ['city', 'state', 'capacity']
@@ -304,7 +311,7 @@ class StreamingDataFoundation:
             raise ValueError(f"Unknown data source: {source_name}")
         
         config = self.source_configs[source_name]
-        file_path = config['file']
+        file_path = os.path.join(self.data_dir, config['file'])
         
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Data file not found: {file_path}")

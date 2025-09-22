@@ -15,7 +15,7 @@ import json
 from datetime import datetime
 
 # Add src to path
-sys.path.append('src')
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from vector_database import VectorDatabase
 from data_foundation import StreamingDataFoundation

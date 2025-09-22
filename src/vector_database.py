@@ -16,6 +16,10 @@ import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 import numpy as np
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -34,27 +38,27 @@ class VectorDatabase:
     """
     
     def __init__(self, 
-                 db_path: str = "data/vector_db",
-                 model_name: str = "all-MiniLM-L6-v2",
+                 db_path: Optional[str] = None,
+                 model_name: Optional[str] = None,
                  collection_name: str = "delivery_failures"):
         """
         Initialize the vector database.
         
         Args:
-            db_path: Path to store the ChromaDB database
-            model_name: Name of the sentence transformer model
+            db_path: Path to store the ChromaDB database (if None, will get from env)
+            model_name: Name of the sentence transformer model (if None, will get from env)
             collection_name: Name of the ChromaDB collection
         """
-        self.db_path = db_path
-        self.model_name = model_name
+        self.db_path = db_path or os.getenv("VECTOR_DB_PATH", "data/vector_db")
+        self.model_name = model_name or os.getenv("SENTENCE_TRANSFORMER_MODEL", "all-MiniLM-L6-v2")
         self.collection_name = collection_name
         
         # Create directory if it doesn't exist
-        os.makedirs(db_path, exist_ok=True)
+        os.makedirs(self.db_path, exist_ok=True)
         
         # Initialize ChromaDB client
         self.client = chromadb.PersistentClient(
-            path=db_path,
+            path=self.db_path,
             settings=Settings(
                 anonymized_telemetry=False,
                 allow_reset=True
@@ -62,8 +66,8 @@ class VectorDatabase:
         )
         
         # Initialize sentence transformer model
-        logger.info(f"Loading sentence transformer model: {model_name}")
-        self.embedding_model = SentenceTransformer(model_name)
+        logger.info(f"Loading sentence transformer model: {self.model_name}")
+        self.embedding_model = SentenceTransformer(self.model_name)
         
         # Get or create collection
         self.collection = self.client.get_or_create_collection(

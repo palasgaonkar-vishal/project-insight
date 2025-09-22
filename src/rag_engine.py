@@ -17,6 +17,10 @@ import openai
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
 from langchain.prompts import ChatPromptTemplate
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -50,8 +54,8 @@ class RAGEngine:
                  vector_db,
                  data_foundation,
                  openai_api_key: Optional[str] = None,
-                 model_name: str = "gpt-4",
-                 temperature: float = 0.1):
+                 model_name: Optional[str] = None,
+                 temperature: Optional[float] = None):
         """
         Initialize the RAG engine.
         
@@ -59,30 +63,29 @@ class RAGEngine:
             vector_db: VectorDatabase instance
             data_foundation: StreamingDataFoundation instance
             openai_api_key: OpenAI API key (if None, will try to get from env)
-            model_name: OpenAI model to use
-            temperature: Temperature for response generation
+            model_name: OpenAI model to use (if None, will get from env)
+            temperature: Temperature for response generation (if None, will get from env)
         """
         self.vector_db = vector_db
         self.data_foundation = data_foundation
         
-        # Set up OpenAI
-        if openai_api_key:
-            os.environ["OPENAI_API_KEY"] = openai_api_key
+        # Get configuration from environment variables or parameters
+        self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+        self.model_name = model_name or os.getenv("OPENAI_MODEL", "gpt-4")
+        self.temperature = temperature or float(os.getenv("OPENAI_TEMPERATURE", "0.1"))
         
-        self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not self.openai_api_key:
-            logger.warning("No OpenAI API key found. RAG functionality will be limited.")
-            self.llm = None
-        else:
+        # Set up OpenAI
+        if self.openai_api_key:
+            os.environ["OPENAI_API_KEY"] = self.openai_api_key
             openai.api_key = self.openai_api_key
             self.llm = ChatOpenAI(
-                model=model_name,
-                temperature=temperature,
+                model=self.model_name,
+                temperature=self.temperature,
                 api_key=self.openai_api_key
             )
-        
-        self.model_name = model_name
-        self.temperature = temperature
+        else:
+            logger.warning("No OpenAI API key found. RAG functionality will be limited.")
+            self.llm = None
         
         # Query intent patterns
         self.intent_patterns = {
