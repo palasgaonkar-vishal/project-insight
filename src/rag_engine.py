@@ -56,7 +56,7 @@ class RAGEngine:
                  api_key: Optional[str] = None,
                  model_name: Optional[str] = None,
                  temperature: Optional[float] = None,
-                 provider: str = "openai"):
+                 provider: Optional[str] = None):
         """
         Initialize the RAG engine.
         
@@ -66,11 +66,13 @@ class RAGEngine:
             api_key: API key for LLM provider (if None, will try to get from env)
             model_name: Model to use (if None, will get from env)
             temperature: Temperature for response generation (if None, will get from env)
-            provider: LLM provider ("openai" or "openrouter")
+            provider: LLM provider ("openai" or "openrouter") - if None, will get from env
         """
         self.vector_db = vector_db
         self.data_foundation = data_foundation
-        self.provider = provider.lower()
+        
+        # Get provider from environment if not specified
+        self.provider = (provider or os.getenv("LLM_PROVIDER", "openai")).lower()
         
         # Get configuration from environment variables or parameters
         if self.provider == "openrouter":
@@ -313,7 +315,7 @@ Answer:"""
     
     def _retrieve_context(self, query: str, n_results: int = 10) -> List[Dict[str, Any]]:
         """
-        Retrieve relevant context from the vector database.
+        Retrieve relevant context from the vector database and direct database queries.
         
         Args:
             query: User query
@@ -323,17 +325,313 @@ Answer:"""
             List of relevant documents
         """
         try:
-            # Search vector database
+            # First, try direct database queries for specific date/location combinations
+            direct_results = self._get_direct_database_context(query)
+            
+            # Then, search vector database
             search_result = self.vector_db.search(query, n_results=n_results)
             
             if search_result["status"] == "success":
-                return search_result["results"]
+                vector_results = search_result["results"]
             else:
                 logger.error(f"Vector search failed: {search_result.get('error', 'Unknown error')}")
-                return []
+                vector_results = []
+            
+            # Combine results, prioritizing direct database results
+            combined_results = direct_results + vector_results
+            
+            # Remove duplicates based on order_id
+            seen_order_ids = set()
+            unique_results = []
+            for result in combined_results:
+                order_id = result.get('metadata', {}).get('order_id', '')
+                if order_id and order_id not in seen_order_ids:
+                    seen_order_ids.add(order_id)
+                    unique_results.append(result)
+                elif not order_id:  # Include results without order_id (from other sources)
+                    unique_results.append(result)
+            
+            # Limit to requested number of results
+            return unique_results[:n_results]
                 
         except Exception as e:
             logger.error(f"Error retrieving context: {str(e)}")
+            return []
+    
+    def _analyze_query_with_llm(self, query: str) -> Dict[str, Any]:
+        """
+        Use LLM to analyze the query and extract relevant entities and intent.
+        
+        Args:
+            query: User query
+            
+        Returns:
+            Dictionary with extracted entities and query analysis
+        """
+        try:
+            analysis_prompt = f"""
+            Analyze this delivery/logistics query and extract relevant information:
+            
+            Query: "{query}"
+            
+            Please extract and return a JSON response with the following structure:
+            {{
+                "cities": ["list of cities mentioned"],
+                "dates": ["list of dates mentioned in YYYY-MM-DD format"],
+                "date_ranges": ["list of date ranges like 'last week', 'yesterday'"],
+                "query_intent": "delays|failures|performance|status|other",
+                "temporal_scope": "specific_date|date_range|recent|all_time",
+                "geographic_scope": "specific_city|region|all_locations",
+                "status_terms": ["delayed", "failed", "successful", "pending"],
+                "time_terms": ["yesterday", "today", "last week", "this month"],
+                "keywords": ["list of important keywords for search"]
+            }}
+            
+            Rules:
+            - Convert all dates to YYYY-MM-DD format
+            - Extract city names as they appear in the query
+            - Identify the main intent of the query
+            - Be specific about temporal and geographic scope
+            - Include relevant keywords for better search
+            """
+            
+            response = self.llm.invoke(analysis_prompt)
+            
+            if response and hasattr(response, 'content') and response.content:
+                import json
+                try:
+                    # Try to extract JSON from the response
+                    content = response.content.strip()
+                    if content.startswith('```json'):
+                        content = content[7:]
+                    if content.endswith('```'):
+                        content = content[:-3]
+                    
+                    analysis = json.loads(content)
+                    logger.info(f"Query analysis: {analysis}")
+                    return analysis
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse LLM response as JSON: {content}")
+                    return self._fallback_query_analysis(query)
+            else:
+                logger.warning("Empty LLM response for query analysis")
+                return self._fallback_query_analysis(query)
+                
+        except Exception as e:
+            logger.error(f"Error in LLM query analysis: {str(e)}")
+            return self._fallback_query_analysis(query)
+    
+    def _fallback_query_analysis(self, query: str) -> Dict[str, Any]:
+        """
+        Fallback query analysis using simple patterns when LLM fails.
+        
+        Args:
+            query: User query
+            
+        Returns:
+            Basic analysis dictionary
+        """
+        import re
+        from datetime import datetime, timedelta
+        
+        # Simple city extraction
+        cities = []
+        city_patterns = [
+            r'\b(?:in|at|to|from)\s+([A-Za-z\s]+?)(?:\s+on|\s+for|\s+in|\s+at|\s+to|\s+from|\s+deliveries|\s+orders|\s+$)',
+            r'\b(?:deliveries|orders|delivery|order)\s+(?:in|at|to|from)\s+([A-Za-z\s]+?)(?:\s+on|\s+for|\s+in|\s+at|\s+to|\s+from|\s+$)',
+        ]
+        
+        for pattern in city_patterns:
+            matches = re.findall(pattern, query, re.IGNORECASE)
+            for match in matches:
+                city = match.strip()
+                if city.lower() not in ['why', 'what', 'how', 'when', 'where', 'deliveries', 'orders', 'delivery', 'order', 'delayed', 'failed']:
+                    cities.append(city)
+        
+        # Simple date extraction
+        dates = []
+        date_patterns = [
+            r'\b(\d{4}-\d{2}-\d{2})\b',
+            r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(\d{4})\b',
+            r'\b(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b',
+        ]
+        
+        for pattern in date_patterns:
+            matches = re.findall(pattern, query, re.IGNORECASE)
+            for match in matches:
+                if isinstance(match, tuple) and len(match) == 3:
+                    if match[0] in ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']:
+                        month, day, year = match
+                    else:
+                        day, month, year = match
+                    
+                    month_num = {
+                        'january': '01', 'february': '02', 'march': '03', 'april': '04',
+                        'may': '05', 'june': '06', 'july': '07', 'august': '08',
+                        'september': '09', 'october': '10', 'november': '11', 'december': '12'
+                    }.get(month.lower(), '01')
+                    
+                    date_str = f"{year}-{month_num}-{day.zfill(2)}"
+                    dates.append(date_str)
+                else:
+                    dates.append(match)
+        
+        return {
+            "cities": cities,
+            "dates": dates,
+            "date_ranges": [],
+            "query_intent": "delays" if any(word in query.lower() for word in ['delay', 'delayed', 'late', 'slow']) else "other",
+            "temporal_scope": "specific_date" if dates else "all_time",
+            "geographic_scope": "specific_city" if cities else "all_locations",
+            "status_terms": [word for word in ['delayed', 'failed', 'successful', 'pending'] if word in query.lower()],
+            "time_terms": [word for word in ['yesterday', 'today', 'last week', 'this month'] if word in query.lower()],
+            "keywords": query.lower().split()
+        }
+    
+    def _get_direct_database_context(self, query: str) -> List[Dict[str, Any]]:
+        """
+        Get context directly from database using LLM-analyzed query entities.
+        
+        Args:
+            query: User query
+            
+        Returns:
+            List of relevant documents from direct database queries
+        """
+        try:
+            import pandas as pd
+            from datetime import datetime, timedelta
+            
+            # Analyze query with LLM
+            analysis = self._analyze_query_with_llm(query)
+            logger.info(f"Query analysis result: {analysis}")
+            
+            cities = analysis.get('cities', [])
+            dates = analysis.get('dates', [])
+            date_ranges = analysis.get('date_ranges', [])
+            
+            # Handle date ranges
+            if date_ranges and not dates:
+                for date_range in date_ranges:
+                    if 'yesterday' in date_range.lower():
+                        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+                        dates.append(yesterday)
+                    elif 'today' in date_range.lower():
+                        today = datetime.now().strftime('%Y-%m-%d')
+                        dates.append(today)
+                    elif 'last week' in date_range.lower():
+                        week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+                        dates.append(week_ago)
+            
+            # If no specific cities or dates, return empty
+            if not cities and not dates:
+                logger.info("No specific cities or dates found in query")
+                return []
+            
+            # Query database for combinations of cities and dates found
+            all_documents = []
+            
+            # If we have specific cities and dates
+            if cities and dates:
+                for city in cities:
+                    for date_str in dates:
+                        try:
+                            # Validate date format
+                            datetime.strptime(date_str, '%Y-%m-%d')
+                            
+                            # Query database for specific city and date
+                            sql_query = f"""
+                                SELECT * FROM orders 
+                                WHERE city = '{city}' AND DATE(order_date) = '{date_str}'
+                                ORDER BY order_date
+                            """
+                            
+                            df = pd.read_sql_query(sql_query, self.data_foundation.db)
+                            
+                            if not df.empty:
+                                logger.info(f"Found {len(df)} direct database results for {city} on {date_str}")
+                                
+                                # Convert to document format
+                                for _, row in df.iterrows():
+                                    doc_text = self.vector_db._create_document_text(row, "orders")
+                                    metadata = self.vector_db._create_metadata(row, "orders", f"direct_{row['order_id']}")
+                                    
+                                    all_documents.append({
+                                        "id": f"direct_{row['order_id']}",
+                                        "document": doc_text,
+                                        "metadata": metadata,
+                                        "distance": 0.0  # Direct database results get highest priority
+                                    })
+                        
+                        except ValueError:
+                            logger.warning(f"Invalid date format: {date_str}")
+                            continue
+            
+            # If we have cities but no specific dates, get recent data
+            elif cities and not dates:
+                for city in cities:
+                    # Get recent orders for this city (last 30 days)
+                    sql_query = f"""
+                        SELECT * FROM orders 
+                        WHERE city = '{city}' 
+                        AND order_date >= date('now', '-30 days')
+                        ORDER BY order_date DESC
+                        LIMIT 50
+                    """
+                    
+                    df = pd.read_sql_query(sql_query, self.data_foundation.db)
+                    
+                    if not df.empty:
+                        logger.info(f"Found {len(df)} recent orders for {city}")
+                        
+                        for _, row in df.iterrows():
+                            doc_text = self.vector_db._create_document_text(row, "orders")
+                            metadata = self.vector_db._create_metadata(row, "orders", f"direct_{row['order_id']}")
+                            
+                            all_documents.append({
+                                "id": f"direct_{row['order_id']}",
+                                "document": doc_text,
+                                "metadata": metadata,
+                                "distance": 0.1  # Recent data gets high priority
+                            })
+            
+            # If we have dates but no specific cities, get all cities for those dates
+            elif dates and not cities:
+                for date_str in dates:
+                    try:
+                        datetime.strptime(date_str, '%Y-%m-%d')
+                        
+                        sql_query = f"""
+                            SELECT * FROM orders 
+                            WHERE DATE(order_date) = '{date_str}'
+                            ORDER BY order_date
+                            LIMIT 100
+                        """
+                        
+                        df = pd.read_sql_query(sql_query, self.data_foundation.db)
+                        
+                        if not df.empty:
+                            logger.info(f"Found {len(df)} orders for date {date_str}")
+                            
+                            for _, row in df.iterrows():
+                                doc_text = self.vector_db._create_document_text(row, "orders")
+                                metadata = self.vector_db._create_metadata(row, "orders", f"direct_{row['order_id']}")
+                                
+                                all_documents.append({
+                                    "id": f"direct_{row['order_id']}",
+                                    "document": doc_text,
+                                    "metadata": metadata,
+                                    "distance": 0.2  # Date-specific data gets medium priority
+                                })
+                    
+                    except ValueError:
+                        logger.warning(f"Invalid date format: {date_str}")
+                        continue
+            
+            return all_documents
+            
+        except Exception as e:
+            logger.error(f"Error in direct database context retrieval: {str(e)}")
             return []
     
     def _format_context(self, documents: List[Dict[str, Any]]) -> str:

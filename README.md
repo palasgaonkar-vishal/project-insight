@@ -18,7 +18,7 @@ The system consists of 6 integrated components:
 
 1. **Data Foundation** - Streaming data processing with SQLite storage
 2. **Vector Database** - Semantic search using ChromaDB and sentence transformers
-3. **RAG Engine** - Retrieval-Augmented Generation with OpenRouter/DeepSeek
+3. **RAG Engine** - Retrieval-Augmented Generation with OpenAI or OpenRouter
 4. **Correlation Engine** - Multi-source data correlation and analysis
 5. **Advanced Processor** - ML-based pattern recognition and predictions
 6. **Web Interface** - Streamlit-based user interface
@@ -82,13 +82,17 @@ The system analyzes data from 8 different sources:
 Create a `.env` file in the root directory with the following variables:
 
 ```env
-# LLM Provider (choose 'openai' or 'openrouter')
-LLM_PROVIDER="openrouter"
+# LLM Provider Configuration
+# Choose one: "openai" or "openrouter"
+LLM_PROVIDER="openai"
 
-# OpenRouter API Key (for DeepSeek models)
+# OpenAI Configuration (if using OpenAI)
+OPENAI_API_KEY="your_openai_api_key_here"
+OPENAI_MODEL="gpt-4o-mini"
+OPENAI_TEMPERATURE="0.1"
+
+# OpenRouter Configuration (if using OpenRouter)
 OPENROUTER_API_KEY="your_openrouter_api_key_here"
-
-# OpenRouter Model Configuration
 OPENROUTER_MODEL="deepseek/deepseek-r1-0528:free"
 OPENROUTER_TEMPERATURE="0.1"
 
@@ -102,10 +106,28 @@ VECTOR_DB_PATH="data/vector_db"
 SENTENCE_TRANSFORMER_MODEL="all-MiniLM-L6-v2"
 ```
 
+### Choosing Your LLM Provider
+
+The system supports two LLM providers:
+
+#### Option 1: OpenAI (Recommended)
+- **Pros**: Most reliable, fastest response times, best quality
+- **Cons**: Requires paid API key
+- **Setup**: Set `LLM_PROVIDER="openai"` and add your OpenAI API key
+- **Models**: `gpt-4o-mini` (recommended), `gpt-4o`, `gpt-3.5-turbo`
+
+#### Option 2: OpenRouter (Free Alternative)
+- **Pros**: Free tier available, access to multiple models
+- **Cons**: Rate limits, potentially slower response times
+- **Setup**: Set `LLM_PROVIDER="openrouter"` and add your OpenRouter API key
+- **Models**: `deepseek/deepseek-r1-0528:free`, `meta-llama/llama-3.1-8b-instruct:free`
+
 ### API Keys
 
+You'll need to obtain API keys for your chosen provider:
+
+- **OpenAI API Key**: Get your API key from [OpenAI Platform](https://platform.openai.com/api-keys)
 - **OpenRouter API Key**: Get your free API key from [OpenRouter](https://openrouter.ai/)
-- **DeepSeek Model**: The system uses DeepSeek R1 model for free via OpenRouter
 
 ## 🖥️ Using the Web Interface
 

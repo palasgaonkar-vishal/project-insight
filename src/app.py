@@ -104,7 +104,9 @@ def initialize_system():
         # Initialize components
         foundation = StreamingDataFoundation()
         vector_db = VectorDatabase()
-        rag_engine = RAGEngine(vector_db, foundation, provider="openrouter")
+        # Get provider from environment variable
+        provider = os.getenv("LLM_PROVIDER", "openai")
+        rag_engine = RAGEngine(vector_db, foundation, provider=provider)
         correlation_engine = CorrelationEngine()
         advanced_processor = AdvancedQueryProcessor()
         
