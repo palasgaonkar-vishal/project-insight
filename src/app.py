@@ -51,9 +51,19 @@ st.markdown("""
     }
     .response-box {
         background-color: #f8f9fa;
-        padding: 1rem;
+        padding: 1.5rem;
         border-radius: 0.5rem;
         border-left: 4px solid #28a745;
+        margin-top: 1rem;
+        width: 100%;
+    }
+    .main .block-container {
+        max-width: 100%;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    .stTabs [data-baseweb="tab-panel"] {
+        width: 100%;
     }
     .error-box {
         background-color: #f8d7da;
@@ -228,24 +238,33 @@ def display_query_interface():
         value=st.session_state.current_query,
         height=100,
         placeholder="e.g., What are the main reasons for delivery failures? How can we improve performance?",
-        help="Ask questions about delivery failures, performance, patterns, predictions, or recommendations."
+        help="Ask questions about delivery failures, performance, patterns, predictions, or recommendations.",
+        key="query_input"
     )
     
     col1, col2, col3 = st.columns([1, 1, 2])
     
     with col1:
-        if st.button("🔍 Analyze", type="primary"):
-            if query.strip():
-                process_query(query)
-            else:
-                st.warning("Please enter a question")
+        analyze_clicked = st.button("🔍 Analyze", type="primary", key="analyze_btn")
     
     with col2:
-        if st.button("📋 Example Queries"):
-            show_example_queries()
+        examples_clicked = st.button("📋 Example Queries", key="examples_btn")
     
     with col3:
         st.info("💡 Try asking about patterns, predictions, or recommendations!")
+    
+    # Handle button clicks
+    if analyze_clicked:
+        if query.strip():
+            st.session_state.current_query = query
+            process_query(query)
+            st.rerun()
+        else:
+            st.warning("Please enter a question")
+    
+    if examples_clicked:
+        show_example_queries()
+        st.rerun()
 
 def show_example_queries():
     """Show example queries."""
@@ -261,9 +280,13 @@ def show_example_queries():
     ]
     
     st.subheader("📋 Example Queries")
+    st.write("Click on any example below to use it as your query:")
+    
     for i, example in enumerate(example_queries):
         if st.button(f"{i+1}. {example}", key=f"example_{i}"):
             st.session_state.current_query = example
+            # Process the query immediately
+            process_query(example)
             st.rerun()
 
 def process_query(query: str):
@@ -309,9 +332,6 @@ def process_query(query: str):
                 'mode': processing_mode,
                 'timestamp': datetime.now()
             }
-            
-            # Display results
-            display_response(result, processing_time)
             
         except Exception as e:
             st.error(f"Error processing query: {e}")
@@ -376,16 +396,21 @@ def display_response(result: Dict[str, Any], processing_time: float):
     """Display the query response."""
     st.markdown('<div class="response-box">', unsafe_allow_html=True)
     
-    # Response header
-    col1, col2, col3 = st.columns([3, 1, 1])
+    # Response header with full width
+    col1, col2, col3, col4 = st.columns([4, 1, 1, 1])
     with col1:
         st.subheader("📊 Analysis Results")
     with col2:
         st.metric("Processing Time", f"{processing_time:.2f}s")
     with col3:
         st.metric("Confidence", f"{result.get('confidence', 0.0):.2f}")
+    with col4:
+        if result.get('tokens_used'):
+            st.metric("Tokens Used", result.get('tokens_used', 0))
     
-    # Main response
+    st.divider()
+    
+    # Main response - use full width
     if result['type'] == 'rag':
         display_rag_response(result)
     elif result['type'] == 'advanced':
@@ -397,16 +422,21 @@ def display_response(result: Dict[str, Any], processing_time: float):
 
 def display_rag_response(result: Dict[str, Any]):
     """Display RAG engine response."""
+    # Main response content
+    st.markdown("### 💬 AI Analysis")
     st.write(result['response'])
     
-    # Additional metrics
-    col1, col2, col3 = st.columns(3)
+    # Additional metrics in a more compact layout
+    st.markdown("### 📊 Analysis Details")
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Sources", len(result.get('sources', [])))
     with col2:
         st.metric("Context Documents", result.get('context_documents', 0))
     with col3:
         st.metric("Tokens Used", result.get('tokens_used', 0))
+    with col4:
+        st.metric("Query Type", result.get('intent', 'Unknown'))
 
 def display_advanced_response(result: Dict[str, Any]):
     """Display advanced processor response."""
@@ -601,11 +631,13 @@ def main():
         # Display current response if available
         if st.session_state.current_response:
             st.divider()
-            st.subheader("📋 Last Response")
-            display_response(
-                st.session_state.current_response['result'],
-                st.session_state.current_response['processing_time']
-            )
+            st.subheader("📋 Analysis Results")
+            # Use full width for response display
+            with st.container():
+                display_response(
+                    st.session_state.current_response['result'],
+                    st.session_state.current_response['processing_time']
+                )
     
     with tab2:
         display_visualizations()
