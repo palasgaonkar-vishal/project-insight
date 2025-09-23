@@ -25,6 +25,18 @@ from rag_engine import RAGEngine
 from correlation_engine import CorrelationEngine
 from advanced_processor import AdvancedQueryProcessor
 
+# Initialize session state FIRST - before any components
+if 'query_history' not in st.session_state:
+    st.session_state.query_history = []
+if 'system_components' not in st.session_state:
+    st.session_state.system_components = {}
+if 'current_query' not in st.session_state:
+    st.session_state.current_query = ""
+if 'current_response' not in st.session_state:
+    st.session_state.current_response = None
+if 'ui_initialized' not in st.session_state:
+    st.session_state.ui_initialized = False
+
 # Page configuration
 st.set_page_config(
     page_title="AI-Powered Delivery Failure Analysis",
@@ -65,6 +77,17 @@ st.markdown("""
     .stTabs [data-baseweb="tab-panel"] {
         width: 100%;
     }
+    /* Prevent component duplication flash */
+    .stApp {
+        transition: none !important;
+    }
+    .element-container {
+        transition: none !important;
+    }
+    /* Hide loading spinner during initialization */
+    .stSpinner {
+        display: none;
+    }
     .error-box {
         background-color: #f8d7da;
         padding: 1rem;
@@ -97,15 +120,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
-if 'query_history' not in st.session_state:
-    st.session_state.query_history = []
-if 'system_components' not in st.session_state:
-    st.session_state.system_components = {}
-if 'current_query' not in st.session_state:
-    st.session_state.current_query = ""
-if 'current_response' not in st.session_state:
-    st.session_state.current_response = None
+# Session state is already initialized above
 
 @st.cache_resource
 def initialize_system():
@@ -232,28 +247,30 @@ def display_query_interface():
     """Display the main query interface."""
     st.header("💬 Ask Questions About Your Delivery Operations")
     
-    # Query input
-    query = st.text_area(
-        "Enter your question:",
-        value=st.session_state.current_query,
-        height=100,
-        placeholder="e.g., What are the main reasons for delivery failures? How can we improve performance?",
-        help="Ask questions about delivery failures, performance, patterns, predictions, or recommendations.",
-        key="query_input"
-    )
+    # Use a form to prevent immediate rerun on text input
+    with st.form("query_form", clear_on_submit=False):
+        # Query input
+        query = st.text_area(
+            "Enter your question:",
+            value=st.session_state.current_query,
+            height=100,
+            placeholder="e.g., What are the main reasons for delivery failures? How can we improve performance?",
+            help="Ask questions about delivery failures, performance, patterns, predictions, or recommendations.",
+            key="query_input"
+        )
+        
+        col1, col2, col3 = st.columns([1, 1, 2])
+        
+        with col1:
+            analyze_clicked = st.form_submit_button("🔍 Analyze", type="primary")
+        
+        with col2:
+            examples_clicked = st.form_submit_button("📋 Example Queries")
+        
+        with col3:
+            st.info("💡 Try asking about patterns, predictions, or recommendations!")
     
-    col1, col2, col3 = st.columns([1, 1, 2])
-    
-    with col1:
-        analyze_clicked = st.button("🔍 Analyze", type="primary", key="analyze_btn")
-    
-    with col2:
-        examples_clicked = st.button("📋 Example Queries", key="examples_btn")
-    
-    with col3:
-        st.info("💡 Try asking about patterns, predictions, or recommendations!")
-    
-    # Handle button clicks
+    # Handle form submission
     if analyze_clicked:
         if query.strip():
             st.session_state.current_query = query
@@ -301,12 +318,19 @@ def process_query(query: str):
     
     st.session_state.current_query = query
     
-    # Determine processing strategy
+    # Determine processing strategy - use session state to prevent reruns
+    if 'processing_mode' not in st.session_state:
+        st.session_state.processing_mode = "Auto (Recommended)"
+    
     processing_mode = st.selectbox(
         "Processing Mode:",
         ["Auto (Recommended)", "RAG Engine", "Advanced Processing", "Correlation Analysis"],
-        index=0
+        index=["Auto (Recommended)", "RAG Engine", "Advanced Processing", "Correlation Analysis"].index(st.session_state.processing_mode),
+        key="processing_mode_select"
     )
+    
+    # Update session state
+    st.session_state.processing_mode = processing_mode
     
     with st.spinner("Analyzing your question..."):
         try:
@@ -612,41 +636,50 @@ def display_about():
 
 def main():
     """Main application function."""
-    # Initialize system
+    # Initialize system only once
     if not st.session_state.system_components:
-        st.session_state.system_components = initialize_system()
+        with st.spinner("Initializing system..."):
+            st.session_state.system_components = initialize_system()
+            st.session_state.ui_initialized = True
     
-    # Display header
-    display_header()
-    
-    # Display sidebar
-    display_sidebar()
-    
-    # Main content tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["💬 Query Interface", "📊 Visualizations", "📈 System Stats", "ℹ️ About"])
-    
-    with tab1:
-        display_query_interface()
+    # Only render UI if system is initialized
+    if st.session_state.ui_initialized and st.session_state.system_components:
+        # Display header
+        display_header()
         
-        # Display current response if available
-        if st.session_state.current_response:
-            st.divider()
-            st.subheader("📋 Analysis Results")
-            # Use full width for response display
-            with st.container():
-                display_response(
-                    st.session_state.current_response['result'],
-                    st.session_state.current_response['processing_time']
-                )
-    
-    with tab2:
-        display_visualizations()
-    
-    with tab3:
-        display_system_stats()
-    
-    with tab4:
-        display_about()
+        # Display sidebar
+        display_sidebar()
+        
+        # Main content tabs
+        tab1, tab2, tab3, tab4 = st.tabs(["💬 Query Interface", "📊 Visualizations", "📈 System Stats", "ℹ️ About"])
+        
+        with tab1:
+            display_query_interface()
+            
+            # Display current response if available
+            if st.session_state.current_response:
+                st.divider()
+                st.subheader("📋 Analysis Results")
+                # Use full width for response display
+                with st.container():
+                    display_response(
+                        st.session_state.current_response['result'],
+                        st.session_state.current_response['processing_time']
+                    )
+        
+        with tab2:
+            display_visualizations()
+        
+        with tab3:
+            display_system_stats()
+        
+        with tab4:
+            display_about()
+    else:
+        # Show loading state
+        st.markdown('<h1 class="main-header">🚚 AI-Powered Delivery Failure Analysis</h1>', unsafe_allow_html=True)
+        st.info("🔄 Initializing system components... Please wait.")
+        st.spinner("Loading...")
 
 if __name__ == "__main__":
     main()
