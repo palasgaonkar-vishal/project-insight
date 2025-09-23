@@ -399,13 +399,25 @@ Answer:"""
             # Generate response
             response = self.llm.invoke(messages)
             
+            # Check if response is valid
+            if not response or not hasattr(response, 'content'):
+                logger.error(f"Invalid LLM response: {response}")
+                return {
+                    "response": "Error: Invalid response from LLM",
+                    "tokens_used": 0,
+                    "error": "Invalid LLM response"
+                }
+            
             # Extract token usage if available
             tokens_used = 0
             if hasattr(response, 'response_metadata'):
                 tokens_used = response.response_metadata.get('token_usage', {}).get('total_tokens', 0)
             
+            # Ensure response content is not None
+            response_content = response.content if response.content else "No response content generated"
+            
             return {
-                "response": response.content,
+                "response": response_content,
                 "tokens_used": tokens_used,
                 "error": None
             }
@@ -448,6 +460,15 @@ Answer:"""
             # Generate response
             llm_result = self._generate_response(query, context, intent)
             
+            # Check if llm_result is valid
+            if not llm_result or not isinstance(llm_result, dict):
+                logger.error(f"Invalid LLM result: {llm_result}")
+                llm_result = {
+                    "response": "Error: Unable to generate response from LLM",
+                    "tokens_used": 0,
+                    "error": "Invalid LLM result"
+                }
+            
             # Extract sources
             sources = list(set([
                 doc.get('metadata', {}).get('source', 'unknown') 
@@ -465,12 +486,12 @@ Answer:"""
             
             return QueryResult(
                 query=query,
-                response=llm_result["response"],
+                response=llm_result.get("response", "No response generated"),
                 context_documents=context_documents,
                 sources=sources,
                 confidence=confidence,
                 processing_time=processing_time,
-                tokens_used=llm_result["tokens_used"]
+                tokens_used=llm_result.get("tokens_used", 0)
             )
             
         except Exception as e:
