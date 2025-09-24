@@ -444,6 +444,251 @@ Answer:"""
             logger.error(f"Error balancing city representation: {str(e)}")
             return direct_results[:n_results]
     
+    def _get_client_specific_context(self, clients: List[str], dates: List[str], date_ranges: List[str]) -> List[Dict[str, Any]]:
+        """
+        Get context for client-specific queries.
+        
+        Args:
+            clients: List of client names
+            dates: List of specific dates
+            date_ranges: List of date ranges
+            
+        Returns:
+            List of relevant documents for the specified clients
+        """
+        try:
+            import pandas as pd
+            from datetime import datetime, timedelta
+            
+            all_documents = []
+            
+            # Handle date ranges
+            processed_dates = dates.copy()
+            if date_ranges and not dates:
+                for date_range in date_ranges:
+                    if 'yesterday' in date_range.lower():
+                        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+                        processed_dates.append(yesterday)
+                    elif 'today' in date_range.lower():
+                        today = datetime.now().strftime('%Y-%m-%d')
+                        processed_dates.append(today)
+                    elif 'last week' in date_range.lower():
+                        week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+                        processed_dates.append(week_ago)
+                    elif 'past three months' in date_range.lower():
+                        three_months_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+                        processed_dates.append(three_months_ago)
+            
+            for client in clients:
+                # First, try to find client by name in clients table
+                client_query = f"""
+                    SELECT client_id FROM clients 
+                    WHERE client_name LIKE '%{client}%' OR client_name = '{client}'
+                """
+                client_df = pd.read_sql_query(client_query, self.data_foundation.db)
+                
+                if not client_df.empty:
+                    client_id = client_df.iloc[0]['client_id']
+                    logger.info(f"Found client {client} with ID {client_id}")
+                    
+                    # Query orders for this client
+                    if processed_dates:
+                        for date_str in processed_dates:
+                            try:
+                                datetime.strptime(date_str, '%Y-%m-%d')
+                                orders_query = f"""
+                                    SELECT o.*, c.client_name 
+                                    FROM orders o 
+                                    JOIN clients c ON o.client_id = c.client_id
+                                    WHERE o.client_id = {client_id} AND DATE(o.order_date) = '{date_str}'
+                                    ORDER BY o.order_date
+                                """
+                                orders_df = pd.read_sql_query(orders_query, self.data_foundation.db)
+                                
+                                if not orders_df.empty:
+                                    logger.info(f"Found {len(orders_df)} orders for client {client} on {date_str}")
+                                    
+                                    for _, row in orders_df.iterrows():
+                                        doc_text = self.vector_db._create_document_text(row, "orders")
+                                        metadata = self.vector_db._create_metadata(row, "orders", f"client_{row['order_id']}")
+                                        metadata['client_name'] = row['client_name']
+                                        
+                                        all_documents.append({
+                                            "id": f"client_{row['order_id']}",
+                                            "document": doc_text,
+                                            "metadata": metadata,
+                                            "distance": 0.0
+                                        })
+                            except ValueError:
+                                logger.warning(f"Invalid date format: {date_str}")
+                                continue
+                    else:
+                        # Get recent orders for this client (last 90 days)
+                        orders_query = f"""
+                            SELECT o.*, c.client_name 
+                            FROM orders o 
+                            JOIN clients c ON o.client_id = c.client_id
+                            WHERE o.client_id = {client_id} 
+                            AND o.order_date >= date('now', '-90 days')
+                            ORDER BY o.order_date DESC
+                            LIMIT 50
+                        """
+                        orders_df = pd.read_sql_query(orders_query, self.data_foundation.db)
+                        
+                        if not orders_df.empty:
+                            logger.info(f"Found {len(orders_df)} recent orders for client {client}")
+                            
+                            for _, row in orders_df.iterrows():
+                                doc_text = self.vector_db._create_document_text(row, "orders")
+                                metadata = self.vector_db._create_metadata(row, "orders", f"client_{row['order_id']}")
+                                metadata['client_name'] = row['client_name']
+                                
+                                all_documents.append({
+                                    "id": f"client_{row['order_id']}",
+                                    "document": doc_text,
+                                    "metadata": metadata,
+                                    "distance": 0.1
+                                })
+                else:
+                    logger.warning(f"Client {client} not found in database")
+            
+            return all_documents
+            
+        except Exception as e:
+            logger.error(f"Error in client-specific context retrieval: {str(e)}")
+            return []
+    
+    def _get_warehouse_specific_context(self, warehouses: List[str], dates: List[str], date_ranges: List[str]) -> List[Dict[str, Any]]:
+        """
+        Get context for warehouse-specific queries.
+        
+        Args:
+            warehouses: List of warehouse names or IDs
+            dates: List of specific dates
+            date_ranges: List of date ranges
+            
+        Returns:
+            List of relevant documents for the specified warehouses
+        """
+        try:
+            import pandas as pd
+            from datetime import datetime, timedelta
+            
+            all_documents = []
+            
+            # Handle date ranges
+            processed_dates = dates.copy()
+            if date_ranges and not dates:
+                for date_range in date_ranges:
+                    if 'yesterday' in date_range.lower():
+                        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+                        processed_dates.append(yesterday)
+                    elif 'today' in date_range.lower():
+                        today = datetime.now().strftime('%Y-%m-%d')
+                        processed_dates.append(today)
+                    elif 'last week' in date_range.lower():
+                        week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+                        processed_dates.append(week_ago)
+                    elif 'august' in date_range.lower():
+                        # Handle August specifically
+                        processed_dates.append('2025-08-01')
+                        processed_dates.append('2025-08-31')
+            
+            for warehouse in warehouses:
+                # Extract warehouse ID from warehouse reference
+                warehouse_id = None
+                if warehouse.isdigit():
+                    warehouse_id = int(warehouse)
+                else:
+                    # Try to find warehouse by name or extract ID from "Warehouse 28" format
+                    import re
+                    id_match = re.search(r'(\d+)', warehouse)
+                    if id_match:
+                        warehouse_id = int(id_match.group(1))
+                    else:
+                        # Try to find by name
+                        warehouse_query = f"""
+                            SELECT warehouse_id FROM warehouses 
+                            WHERE warehouse_name LIKE '%{warehouse}%' OR warehouse_name = '{warehouse}'
+                        """
+                        warehouse_df = pd.read_sql_query(warehouse_query, self.data_foundation.db)
+                        if not warehouse_df.empty:
+                            warehouse_id = warehouse_df.iloc[0]['warehouse_id']
+                
+                if warehouse_id:
+                    logger.info(f"Found warehouse {warehouse} with ID {warehouse_id}")
+                    
+                    # Query orders through warehouse_logs
+                    if processed_dates:
+                        for date_str in processed_dates:
+                            try:
+                                datetime.strptime(date_str, '%Y-%m-%d')
+                                orders_query = f"""
+                                    SELECT o.*, w.warehouse_name, wl.*
+                                    FROM orders o 
+                                    JOIN warehouse_logs wl ON o.order_id = wl.order_id
+                                    JOIN warehouses w ON wl.warehouse_id = w.warehouse_id
+                                    WHERE wl.warehouse_id = {warehouse_id} AND DATE(o.order_date) = '{date_str}'
+                                    ORDER BY o.order_date
+                                """
+                                orders_df = pd.read_sql_query(orders_query, self.data_foundation.db)
+                                
+                                if not orders_df.empty:
+                                    logger.info(f"Found {len(orders_df)} orders for warehouse {warehouse} on {date_str}")
+                                    
+                                    for _, row in orders_df.iterrows():
+                                        doc_text = self.vector_db._create_document_text(row, "orders")
+                                        metadata = self.vector_db._create_metadata(row, "orders", f"warehouse_{row['order_id']}")
+                                        metadata['warehouse_name'] = row['warehouse_name']
+                                        metadata['warehouse_id'] = warehouse_id
+                                        
+                                        all_documents.append({
+                                            "id": f"warehouse_{row['order_id']}",
+                                            "document": doc_text,
+                                            "metadata": metadata,
+                                            "distance": 0.0
+                                        })
+                            except ValueError:
+                                logger.warning(f"Invalid date format: {date_str}")
+                                continue
+                    else:
+                        # Get recent orders for this warehouse (last 90 days)
+                        orders_query = f"""
+                            SELECT o.*, w.warehouse_name, wl.*
+                            FROM orders o 
+                            JOIN warehouse_logs wl ON o.order_id = wl.order_id
+                            JOIN warehouses w ON wl.warehouse_id = w.warehouse_id
+                            WHERE wl.warehouse_id = {warehouse_id} 
+                            AND o.order_date >= date('now', '-90 days')
+                            ORDER BY o.order_date DESC
+                            LIMIT 50
+                        """
+                        orders_df = pd.read_sql_query(orders_query, self.data_foundation.db)
+                        
+                        if not orders_df.empty:
+                            logger.info(f"Found {len(orders_df)} recent orders for warehouse {warehouse}")
+                            
+                            for _, row in orders_df.iterrows():
+                                doc_text = self.vector_db._create_document_text(row, "orders")
+                                metadata = self.vector_db._create_metadata(row, "orders", f"warehouse_{row['order_id']}")
+                                metadata['warehouse_name'] = row['warehouse_name']
+                                metadata['warehouse_id'] = warehouse_id
+                                
+                                all_documents.append({
+                                    "id": f"warehouse_{row['order_id']}",
+                                    "document": doc_text,
+                                    "metadata": metadata,
+                                    "distance": 0.1
+                                })
+                else:
+                    logger.warning(f"Warehouse {warehouse} not found in database")
+            
+            return all_documents
+            
+        except Exception as e:
+            logger.error(f"Error in warehouse-specific context retrieval: {str(e)}")
+            return []
+    
     def _analyze_query_with_llm(self, query: str) -> Dict[str, Any]:
         """
         Use LLM to analyze the query and extract relevant entities and intent.
@@ -465,6 +710,8 @@ Answer:"""
                 "cities": ["list of cities mentioned"],
                 "dates": ["list of dates mentioned in YYYY-MM-DD format"],
                 "date_ranges": ["list of date ranges like 'last week', 'yesterday'"],
+                "clients": ["list of client names or company names mentioned"],
+                "warehouses": ["list of warehouse names or warehouse IDs mentioned"],
                 "query_intent": "delays|failures|performance|status|other",
                 "temporal_scope": "specific_date|date_range|recent|all_time",
                 "geographic_scope": "specific_city|region|all_locations",
@@ -476,6 +723,8 @@ Answer:"""
             Rules:
             - Convert all dates to YYYY-MM-DD format
             - Extract city names as they appear in the query
+            - Extract client names (e.g., "Bath LLC", "Client Y", company names)
+            - Extract warehouse references (e.g., "Warehouse 28", "Warehouse A", warehouse names)
             - Identify the main intent of the query
             - Be specific about temporal and geographic scope
             - Include relevant keywords for better search
@@ -595,6 +844,8 @@ Answer:"""
             cities = analysis.get('cities', [])
             dates = analysis.get('dates', [])
             date_ranges = analysis.get('date_ranges', [])
+            clients = analysis.get('clients', [])
+            warehouses = analysis.get('warehouses', [])
             
             # Handle date ranges
             if date_ranges and not dates:
@@ -609,9 +860,9 @@ Answer:"""
                         week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
                         dates.append(week_ago)
             
-            # If no specific cities or dates, return empty
-            if not cities and not dates:
-                logger.info("No specific cities or dates found in query")
+            # If no specific cities, dates, clients, or warehouses, return empty
+            if not cities and not dates and not clients and not warehouses:
+                logger.info("No specific cities, dates, clients, or warehouses found in query")
                 return []
             
             # Query database for combinations of cities and dates found
@@ -713,6 +964,14 @@ Answer:"""
                     except ValueError:
                         logger.warning(f"Invalid date format: {date_str}")
                         continue
+            
+            # Handle client-specific queries
+            if clients and not all_documents:
+                all_documents.extend(self._get_client_specific_context(clients, dates, date_ranges))
+            
+            # Handle warehouse-specific queries
+            if warehouses and not all_documents:
+                all_documents.extend(self._get_warehouse_specific_context(warehouses, dates, date_ranges))
             
             return all_documents
             
