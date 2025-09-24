@@ -246,10 +246,13 @@ Context Data:
 Query: {query}
 
 Please provide:
-1. Comparative analysis
-2. Key differences and similarities
-3. Rankings or performance comparisons
-4. Recommendations based on comparisons
+1. Comparative analysis between all mentioned cities/locations
+2. Key differences and similarities with specific data points
+3. Rankings or performance comparisons with metrics
+4. City-specific insights and patterns
+5. Recommendations based on comparisons
+
+Important: Make sure to analyze data for ALL cities mentioned in the query. If the context contains data for multiple cities, provide a comprehensive comparison across all of them.
 
 Answer:""",
 
@@ -337,8 +340,18 @@ Answer:"""
                 logger.error(f"Vector search failed: {search_result.get('error', 'Unknown error')}")
                 vector_results = []
             
-            # Combine results, prioritizing direct database results
-            combined_results = direct_results + vector_results
+            # Check if this is a comparison query with multiple cities
+            analysis = self._analyze_query_with_llm(query)
+            cities = analysis.get('cities', [])
+            is_comparison_query = len(cities) > 1 and any(word in query.lower() for word in ['compare', 'versus', 'vs', 'between'])
+            
+            if is_comparison_query and direct_results:
+                # For comparison queries, ensure balanced representation of all cities
+                balanced_results = self._balance_city_representation(direct_results, cities, n_results)
+                combined_results = balanced_results + vector_results
+            else:
+                # Combine results, prioritizing direct database results
+                combined_results = direct_results + vector_results
             
             # Remove duplicates based on order_id
             seen_order_ids = set()
@@ -357,6 +370,71 @@ Answer:"""
         except Exception as e:
             logger.error(f"Error retrieving context: {str(e)}")
             return []
+    
+    def _balance_city_representation(self, direct_results: List[Dict[str, Any]], cities: List[str], n_results: int) -> List[Dict[str, Any]]:
+        """
+        Balance city representation in results for comparison queries.
+        
+        Args:
+            direct_results: List of direct database results
+            cities: List of cities mentioned in the query
+            n_results: Total number of results to return
+            
+        Returns:
+            Balanced list of results with equal representation from each city
+        """
+        try:
+            # Group results by city
+            city_groups = {}
+            for result in direct_results:
+                city = result.get('metadata', {}).get('city', '')
+                if city in cities:
+                    if city not in city_groups:
+                        city_groups[city] = []
+                    city_groups[city].append(result)
+            
+            # Calculate how many results to take from each city
+            num_cities = len(city_groups)
+            if num_cities == 0:
+                return direct_results[:n_results]
+            
+            # Reserve some slots for vector results (about 30%)
+            vector_slots = max(2, n_results // 3)
+            direct_slots = n_results - vector_slots
+            results_per_city = max(1, direct_slots // num_cities)
+            
+            balanced_results = []
+            
+            # Take equal number of results from each city
+            for city in cities:
+                if city in city_groups:
+                    city_results = city_groups[city][:results_per_city]
+                    balanced_results.extend(city_results)
+                    logger.info(f"Added {len(city_results)} results for {city}")
+            
+            # If we have space, add more results from cities with more data
+            remaining_slots = direct_slots - len(balanced_results)
+            if remaining_slots > 0:
+                # Sort cities by number of available results
+                sorted_cities = sorted(city_groups.items(), key=lambda x: len(x[1]), reverse=True)
+                
+                for city, city_results in sorted_cities:
+                    if remaining_slots <= 0:
+                        break
+                    
+                    # Add one more result from this city if available
+                    if len(city_results) > results_per_city:
+                        additional_result = city_results[results_per_city]
+                        balanced_results.append(additional_result)
+                        remaining_slots -= 1
+                        logger.info(f"Added additional result for {city}")
+            
+            logger.info(f"Balanced results: {len(balanced_results)} total, {len(city_groups)} cities represented")
+            return balanced_results
+            
+        except Exception as e:
+            logger.error(f"Error balancing city representation: {str(e)}")
+            return direct_results[:n_results]
     
     def _analyze_query_with_llm(self, query: str) -> Dict[str, Any]:
         """
