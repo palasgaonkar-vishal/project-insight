@@ -306,6 +306,39 @@ def show_example_queries():
             process_query(example)
             st.rerun()
 
+def _is_predictive_query(query: str) -> bool:
+    """Check if query is predictive/forecasting in nature."""
+    import re
+    query_lower = query.lower()
+    
+    predictive_patterns = [
+        r"predict", r"forecast", r"future", r"likely", r"expected",
+        r"should.*expect", r"what.*risks", r"mitigate", r"onboard",
+        r"scaling", r"capacity", r"risk.*assessment", r"what.*happen",
+        r"if.*we.*onboard", r"new.*risks", r"potential.*issues"
+    ]
+    
+    for pattern in predictive_patterns:
+        if re.search(pattern, query_lower):
+            return True
+    return False
+
+def _is_complex_analysis_query(query: str) -> bool:
+    """Check if query requires complex multi-dimensional analysis."""
+    import re
+    query_lower = query.lower()
+    
+    complex_patterns = [
+        r"analyze.*correlation", r"relationship.*between", r"multi.*dimensional",
+        r"cross.*source", r"pattern.*recognition", r"anomaly.*detection",
+        r"trend.*analysis", r"performance.*optimization"
+    ]
+    
+    for pattern in complex_patterns:
+        if re.search(pattern, query_lower):
+            return True
+    return False
+
 def process_query(query: str):
     """Process a query using the appropriate system component."""
     if not st.session_state.system_components:
@@ -336,7 +369,15 @@ def process_query(query: str):
         try:
             start_time = time.time()
             
-            if processing_mode == "Auto (Recommended)" or processing_mode == "RAG Engine":
+            if processing_mode == "Auto (Recommended)":
+                # Auto-route queries based on content
+                if _is_predictive_query(query):
+                    result = process_with_advanced(query)
+                elif _is_complex_analysis_query(query):
+                    result = process_with_advanced(query)
+                else:
+                    result = process_with_rag(query)
+            elif processing_mode == "RAG Engine":
                 # Use RAG engine for most queries
                 result = process_with_rag(query)
             elif processing_mode == "Advanced Processing":

@@ -117,7 +117,15 @@ class AdvancedQueryProcessor:
                 r"predict.*the.*risk",
                 r"what.*s.*likely.*to.*cause",
                 r"forecast.*performance",
-                r"predict.*delivery.*performance"
+                r"predict.*delivery.*performance",
+                r"should.*expect",
+                r"what.*risks",
+                r"mitigate",
+                r"onboard",
+                r"scaling",
+                r"capacity",
+                r"new.*risks",
+                r"potential.*issues"
             ],
             "anomaly_detection": [
                 r"unusual.*pattern",

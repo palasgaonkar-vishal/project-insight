@@ -139,7 +139,9 @@ class RAGEngine:
             ],
             "prediction": [
                 r"predict", r"forecast", r"future", r"likely", r"expected",
-                r"trend", r"pattern", r"will.*happen"
+                r"trend", r"pattern", r"will.*happen", r"should.*expect",
+                r"what.*risks", r"mitigate", r"onboard", r"scaling",
+                r"capacity", r"risk.*assessment", r"what.*happen"
             ]
         }
         
