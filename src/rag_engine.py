@@ -130,11 +130,12 @@ class RAGEngine:
             ],
             "temporal": [
                 r"when", r"date", r"time", r"period", r"day", r"week", r"month",
-                r"recent", r"last", r"during", r"between"
+                r"recent", r"last", r"during"
             ],
             "comparison": [
                 r"compare", r"versus", r"vs", r"better", r"worse", r"difference",
-                r"ranking", r"top", r"bottom", r"best", r"worst"
+                r"ranking", r"top", r"bottom", r"best", r"worst", r"between.*and",
+                r"analyze.*differences", r"contrast", r"relative"
             ],
             "prediction": [
                 r"predict", r"forecast", r"future", r"likely", r"expected",
@@ -307,6 +308,11 @@ Answer:"""
                 if re.search(pattern, query_lower):
                     score += 1
             intent_scores[intent] = score
+        
+        # Prioritize comparison over temporal when both match
+        if intent_scores.get("comparison", 0) > 0 and intent_scores.get("temporal", 0) > 0:
+            if intent_scores["comparison"] >= intent_scores["temporal"]:
+                return "comparison"
         
         # Return the intent with highest score, or default
         if intent_scores:
