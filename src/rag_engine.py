@@ -120,9 +120,13 @@ class RAGEngine:
                 r"why.*fail", r"failure.*reason", r"what.*caused", r"root cause",
                 r"delivery.*problem", r"issue.*with", r"trouble.*with"
             ],
+            "delays": [
+                r"delay", r"delayed", r"late", r"slow", r"behind", r"slowly",
+                r"tardiness", r"overdue", r"behind.*schedule", r"why.*delay"
+            ],
             "performance": [
                 r"performance", r"efficiency", r"speed", r"time", r"duration",
-                r"how.*fast", r"how.*slow", r"delays"
+                r"how.*fast", r"how.*slow"
             ],
             "geographic": [
                 r"city", r"state", r"location", r"region", r"area", r"where",
@@ -238,6 +242,24 @@ Please provide:
 2. Temporal analysis of the data
 3. Time-specific insights
 4. Recommendations based on timing
+
+Answer:""",
+
+            "delays": """Analyze the following delivery data to identify delay causes and patterns:
+
+Context Data:
+{context}
+
+Query: {query}
+
+Please provide:
+1. Analysis of delay indicators in the data (status, failure reasons, timing)
+2. Specific delay patterns and root causes
+3. Orders that show signs of delays (In-Transit, Pending, Failed, Returned statuses)
+4. Time-based analysis of delivery performance
+5. Actionable recommendations to prevent delays
+
+Important: Look for orders with statuses like "In-Transit", "Pending", "Failed", or "Returned" as these may indicate delays. Also consider orders without clear delivery completion dates.
 
 Answer:""",
 
@@ -443,6 +465,76 @@ Answer:"""
         except Exception as e:
             logger.error(f"Error balancing city representation: {str(e)}")
             return direct_results[:n_results]
+    
+    def _analyze_delay_indicators(self, row) -> Dict[str, Any]:
+        """
+        Analyze a row to identify delay indicators.
+        
+        Args:
+            row: Database row with order information
+            
+        Returns:
+            Dictionary with delay analysis
+        """
+        try:
+            import pandas as pd
+            from datetime import datetime, timedelta
+            
+            indicators = {
+                'status_indicates_delay': False,
+                'has_failure_reason': False,
+                'actual_delay_days': None,
+                'delay_reasons': []
+            }
+            
+            # Check status-based delay indicators
+            status = row.get('status', '')
+            if status in ['In-Transit', 'Pending', 'Failed', 'Returned']:
+                indicators['status_indicates_delay'] = True
+                indicators['delay_reasons'].append(f"Status: {status}")
+            
+            # Check failure reason
+            failure_reason = row.get('failure_reason', '')
+            if pd.notna(failure_reason) and failure_reason and failure_reason != 'None':
+                indicators['has_failure_reason'] = True
+                indicators['delay_reasons'].append(f"Failure: {failure_reason}")
+            
+            # Check actual vs promised delivery dates
+            promised_date = row.get('promised_delivery_date')
+            actual_date = row.get('actual_delivery_date')
+            
+            if pd.notna(promised_date) and pd.notna(actual_date):
+                try:
+                    promised = pd.to_datetime(promised_date)
+                    actual = pd.to_datetime(actual_date)
+                    if actual > promised:
+                        delay_days = (actual - promised).days
+                        indicators['actual_delay_days'] = delay_days
+                        indicators['delay_reasons'].append(f"Delayed by {delay_days} days")
+                except:
+                    pass
+            
+            # Check if order is old but still not delivered
+            order_date = row.get('order_date')
+            if pd.notna(order_date):
+                try:
+                    order_dt = pd.to_datetime(order_date)
+                    days_since_order = (datetime.now() - order_dt).days
+                    if days_since_order > 7 and status in ['In-Transit', 'Pending']:
+                        indicators['delay_reasons'].append(f"Order {days_since_order} days old, still {status}")
+                except:
+                    pass
+            
+            return indicators
+            
+        except Exception as e:
+            logger.error(f"Error analyzing delay indicators: {e}")
+            return {
+                'status_indicates_delay': False,
+                'has_failure_reason': False,
+                'actual_delay_days': None,
+                'delay_reasons': []
+            }
     
     def _get_client_specific_context(self, clients: List[str], dates: List[str], date_ranges: List[str]) -> List[Dict[str, Any]]:
         """
@@ -876,12 +968,28 @@ Answer:"""
                             # Validate date format
                             datetime.strptime(date_str, '%Y-%m-%d')
                             
-                            # Query database for specific city and date
-                            sql_query = f"""
-                                SELECT * FROM orders 
-                                WHERE city = '{city}' AND DATE(order_date) = '{date_str}'
-                                ORDER BY order_date
-                            """
+                            # Check if this is a delay-related query
+                            is_delay_query = any(word in query.lower() for word in ['delay', 'delayed', 'late', 'behind'])
+                            
+                            if is_delay_query:
+                                # For delay queries, look for orders that might indicate delays
+                                sql_query = f"""
+                                    SELECT * FROM orders 
+                                    WHERE city = '{city}' AND DATE(order_date) = '{date_str}'
+                                    AND (status IN ('In-Transit', 'Pending', 'Failed', 'Returned')
+                                         OR failure_reason IS NOT NULL
+                                         OR (promised_delivery_date IS NOT NULL 
+                                             AND actual_delivery_date IS NOT NULL 
+                                             AND actual_delivery_date > promised_delivery_date))
+                                    ORDER BY order_date
+                                """
+                            else:
+                                # For other queries, get all orders
+                                sql_query = f"""
+                                    SELECT * FROM orders 
+                                    WHERE city = '{city}' AND DATE(order_date) = '{date_str}'
+                                    ORDER BY order_date
+                                """
                             
                             df = pd.read_sql_query(sql_query, self.data_foundation.db)
                             
@@ -892,6 +1000,10 @@ Answer:"""
                                 for _, row in df.iterrows():
                                     doc_text = self.vector_db._create_document_text(row, "orders")
                                     metadata = self.vector_db._create_metadata(row, "orders", f"direct_{row['order_id']}")
+                                    
+                                    # Add delay-specific metadata
+                                    if is_delay_query:
+                                        metadata['delay_indicators'] = self._analyze_delay_indicators(row)
                                     
                                     all_documents.append({
                                         "id": f"direct_{row['order_id']}",
