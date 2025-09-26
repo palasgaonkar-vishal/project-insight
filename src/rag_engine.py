@@ -611,11 +611,12 @@ Answer:"""
                         for date_str in processed_dates:
                             try:
                                 datetime.strptime(date_str, '%Y-%m-%d')
+                                # For date ranges, query from the date to today
                                 orders_query = f"""
                                     SELECT o.*, c.client_name 
                                     FROM orders o 
                                     JOIN clients c ON o.client_id = c.client_id
-                                    WHERE o.client_id = {client_id} AND DATE(o.order_date) = '{date_str}'
+                                    WHERE o.client_id = {client_id} AND DATE(o.order_date) >= '{date_str}'
                                     ORDER BY o.order_date
                                 """
                                 orders_df = pd.read_sql_query(orders_query, self.data_foundation._get_db_connection())
@@ -743,7 +744,7 @@ Answer:"""
                                     FROM orders o 
                                     JOIN warehouse_logs wl ON o.order_id = wl.order_id
                                     JOIN warehouses w ON wl.warehouse_id = w.warehouse_id
-                                    WHERE wl.warehouse_id = {warehouse_id} AND DATE(o.order_date) = '{date_str}'
+                                    WHERE wl.warehouse_id = {warehouse_id} AND DATE(o.order_date) >= '{date_str}'
                                     ORDER BY o.order_date
                                 """
                                 orders_df = pd.read_sql_query(orders_query, self.data_foundation._get_db_connection())
