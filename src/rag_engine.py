@@ -259,7 +259,12 @@ Please provide:
 4. Time-based analysis of delivery performance
 5. Actionable recommendations to prevent delays
 
-Important: Look for orders with statuses like "In-Transit", "Pending", "Failed", or "Returned" as these may indicate delays. Also consider orders without clear delivery completion dates.
+CRITICAL INSTRUCTIONS:
+- Focus ONLY on orders that match the specific location and date mentioned in the query
+- If the query asks about a specific city and date, analyze ONLY orders from that city and date
+- Ignore orders from other cities or dates unless they are directly relevant to the specific query
+- Look for orders with statuses like "In-Transit", "Pending", "Failed", or "Returned" as these may indicate delays
+- Consider orders without clear delivery completion dates as potential delays
 
 Answer:""",
 
