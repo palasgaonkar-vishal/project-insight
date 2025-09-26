@@ -383,16 +383,34 @@ Answer:"""
                 # Combine results, prioritizing direct database results
                 combined_results = direct_results + vector_results
             
-            # Remove duplicates based on order_id
+            # Remove duplicates based on order_id, prioritizing direct database results
             seen_order_ids = set()
             unique_results = []
+            
+            # First, add all direct database results (they have distance 0.0)
             for result in combined_results:
                 order_id = result.get('metadata', {}).get('order_id', '')
-                if order_id and order_id not in seen_order_ids:
-                    seen_order_ids.add(order_id)
-                    unique_results.append(result)
-                elif not order_id:  # Include results without order_id (from other sources)
-                    unique_results.append(result)
+                distance = result.get('distance', 1.0)
+                
+                # Prioritize direct database results (distance 0.0) over vector results
+                if distance == 0.0:
+                    if order_id and order_id not in seen_order_ids:
+                        seen_order_ids.add(order_id)
+                        unique_results.append(result)
+                    elif not order_id:
+                        unique_results.append(result)
+            
+            # Then add vector results only if we haven't seen the order_id
+            for result in combined_results:
+                order_id = result.get('metadata', {}).get('order_id', '')
+                distance = result.get('distance', 1.0)
+                
+                if distance > 0.0:  # Vector results
+                    if order_id and order_id not in seen_order_ids:
+                        seen_order_ids.add(order_id)
+                        unique_results.append(result)
+                    elif not order_id:
+                        unique_results.append(result)
             
             # Limit to requested number of results
             return unique_results[:n_results]
@@ -1136,14 +1154,22 @@ Answer:"""
             }
         
         try:
+            # Log the context being sent to LLM for debugging
+            logger.info(f"CONTEXT BEING SENT TO LLM:")
+            logger.info(f"Context length: {len(context)} characters")
+            logger.info(f"Context preview: {context[:500]}...")
+            
             # Get appropriate prompt template
             template = self.prompt_templates.get(intent, self.prompt_templates["default"])
+            logger.info(f"Intent: {intent}, Using template: {template[:100]}...")
             
             # Format the prompt
             formatted_prompt = template.format(
                 context=context,
                 query=query
             )
+            
+            logger.info(f"Formatted prompt preview: {formatted_prompt[:500]}...")
             
             # Create messages
             messages = [
