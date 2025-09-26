@@ -42,8 +42,8 @@ class StreamingDataFoundation:
         # Create data directory if it doesn't exist
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         
-        # Initialize database
-        self.db = self._setup_database()
+        # Don't initialize database connection here - create it per thread
+        self.db = None
         
         # Data source configurations
         self.data_dir = os.path.abspath(os.getenv("DATA_DIR", "sample-data-set"))
@@ -97,6 +97,16 @@ class StreamingDataFoundation:
                 'indexes': ['city', 'state', 'capacity']
             }
         }
+    
+    def _get_db_connection(self) -> sqlite3.Connection:
+        """Get a thread-safe database connection."""
+        if self.db is None:
+            self.db = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.execute("PRAGMA synchronous=NORMAL")
+            self.db.execute("PRAGMA cache_size=10000")
+            self.db.execute("PRAGMA temp_store=MEMORY")
+        return self.db
     
     def _setup_database(self) -> sqlite3.Connection:
         """Set up SQLite database with optimized schema and indexing."""
@@ -498,7 +508,7 @@ class StreamingDataFoundation:
             try:
                 # Get record count
                 count_query = f"SELECT COUNT(*) as count FROM {table_name}"
-                count_result = self.db.execute(count_query).fetchone()
+                count_result = self._get_db_connection().execute(count_query).fetchone()
                 record_count = count_result[0] if count_result else 0
                 
                 # Get date range if applicable
@@ -511,8 +521,8 @@ class StreamingDataFoundation:
                         min_query = f"SELECT MIN({date_col}) as min_date FROM {table_name}"
                         max_query = f"SELECT MAX({date_col}) as max_date FROM {table_name}"
                         
-                        min_result = self.db.execute(min_query).fetchone()
-                        max_result = self.db.execute(max_query).fetchone()
+                        min_result = self._get_db_connection().execute(min_query).fetchone()
+                        max_result = self._get_db_connection().execute(max_query).fetchone()
                         
                         if min_result and max_result:
                             date_range[date_col] = {
@@ -539,14 +549,14 @@ class StreamingDataFoundation:
         if self.db:
             for source_name, config in self.source_configs.items():
                 table_name = config['table']
-                self.db.execute(f"DELETE FROM {table_name}")
-            self.db.commit()
+                self._get_db_connection().execute(f"DELETE FROM {table_name}")
+            self._get_db_connection().commit()
             logger.info("Database cleared")
     
     def close(self):
         """Close database connection."""
         if self.db:
-            self.db.close()
+            self._get_db_connection().close()
             logger.info("Database connection closed")
 
 

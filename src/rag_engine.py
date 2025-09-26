@@ -600,7 +600,7 @@ Answer:"""
                     SELECT client_id FROM clients 
                     WHERE client_name LIKE '%{client}%' OR client_name = '{client}'
                 """
-                client_df = pd.read_sql_query(client_query, self.data_foundation.db)
+                client_df = pd.read_sql_query(client_query, self.data_foundation._get_db_connection())
                 
                 if not client_df.empty:
                     client_id = client_df.iloc[0]['client_id']
@@ -618,7 +618,7 @@ Answer:"""
                                     WHERE o.client_id = {client_id} AND DATE(o.order_date) = '{date_str}'
                                     ORDER BY o.order_date
                                 """
-                                orders_df = pd.read_sql_query(orders_query, self.data_foundation.db)
+                                orders_df = pd.read_sql_query(orders_query, self.data_foundation._get_db_connection())
                                 
                                 if not orders_df.empty:
                                     logger.info(f"Found {len(orders_df)} orders for client {client} on {date_str}")
@@ -648,7 +648,7 @@ Answer:"""
                             ORDER BY o.order_date DESC
                             LIMIT 50
                         """
-                        orders_df = pd.read_sql_query(orders_query, self.data_foundation.db)
+                        orders_df = pd.read_sql_query(orders_query, self.data_foundation._get_db_connection())
                         
                         if not orders_df.empty:
                             logger.info(f"Found {len(orders_df)} recent orders for client {client}")
@@ -726,7 +726,7 @@ Answer:"""
                             SELECT warehouse_id FROM warehouses 
                             WHERE warehouse_name LIKE '%{warehouse}%' OR warehouse_name = '{warehouse}'
                         """
-                        warehouse_df = pd.read_sql_query(warehouse_query, self.data_foundation.db)
+                        warehouse_df = pd.read_sql_query(warehouse_query, self.data_foundation._get_db_connection())
                         if not warehouse_df.empty:
                             warehouse_id = warehouse_df.iloc[0]['warehouse_id']
                 
@@ -746,7 +746,7 @@ Answer:"""
                                     WHERE wl.warehouse_id = {warehouse_id} AND DATE(o.order_date) = '{date_str}'
                                     ORDER BY o.order_date
                                 """
-                                orders_df = pd.read_sql_query(orders_query, self.data_foundation.db)
+                                orders_df = pd.read_sql_query(orders_query, self.data_foundation._get_db_connection())
                                 
                                 if not orders_df.empty:
                                     logger.info(f"Found {len(orders_df)} orders for warehouse {warehouse} on {date_str}")
@@ -778,7 +778,7 @@ Answer:"""
                             ORDER BY o.order_date DESC
                             LIMIT 50
                         """
-                        orders_df = pd.read_sql_query(orders_query, self.data_foundation.db)
+                        orders_df = pd.read_sql_query(orders_query, self.data_foundation._get_db_connection())
                         
                         if not orders_df.empty:
                             logger.info(f"Found {len(orders_df)} recent orders for warehouse {warehouse}")
@@ -1014,7 +1014,7 @@ Answer:"""
                                     ORDER BY order_date
                                 """
                             
-                            df = pd.read_sql_query(sql_query, self.data_foundation.db)
+                            df = pd.read_sql_query(sql_query, self.data_foundation._get_db_connection())
                             
                             if not df.empty:
                                 logger.info(f"Found {len(df)} direct database results for {city} on {date_str}")
@@ -1051,7 +1051,7 @@ Answer:"""
                         LIMIT 50
                     """
                     
-                    df = pd.read_sql_query(sql_query, self.data_foundation.db)
+                    df = pd.read_sql_query(sql_query, self.data_foundation._get_db_connection())
                     
                     if not df.empty:
                         logger.info(f"Found {len(df)} recent orders for {city}")
@@ -1080,7 +1080,7 @@ Answer:"""
                             LIMIT 100
                         """
                         
-                        df = pd.read_sql_query(sql_query, self.data_foundation.db)
+                        df = pd.read_sql_query(sql_query, self.data_foundation._get_db_connection())
                         
                         if not df.empty:
                             logger.info(f"Found {len(df)} orders for date {date_str}")
